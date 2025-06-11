@@ -1,0 +1,4 @@
+streamlit==1.45.1
+streamlit-audiorecorder==0.0.6
+openai
+gTTS
