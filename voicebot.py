@@ -5,6 +5,8 @@ import os
 from datetime import datetime
 from gtts import gTTS
 import base64
+from pydub import AudioSegment
+import io
 
 # --- 함수 정의 (변경 없음) ---
 def STT(audio, api_key):
@@ -139,7 +141,6 @@ def main():
     with col1:
         st.subheader("질문하기")
 
-        # ## << 추가된 부분: 텍스트 입력
         text_question = st.text_input("텍스트로 질문하기", placeholder="여기에 질문을 입력하세요.")
         text_submit = st.button("질문 전송")
 
@@ -163,8 +164,15 @@ def main():
     
     # 음성 입력 처리
     elif len(audio) > 0:
-        st.audio(audio.export().read())
-        question = STT(audio, st.session_state["OPENAI_API"])
+        # numpy.ndarray → BytesIO → AudioSegment 변환
+        audio_bytes = audio.tobytes()
+        audio_segment = AudioSegment.from_raw(io.BytesIO(audio_bytes), sample_width=2, frame_rate=44100, channels=1)
+
+        # 스트림릿에서 재생
+        st.audio(audio_segment.export(format="mp3").read())
+
+        # STT 호출
+        question = STT(audio_segment, st.session_state["OPENAI_API"])
 
     # ## << 수정된 부분: 공통 로직 처리
     if question:
