@@ -162,7 +162,7 @@ def main():
         question = text_question
     
     # 음성 입력 처리
-    elif audio.duration_seconds > 0:
+    elif len(audio) > 0:
         st.audio(audio.export().read())
         question = STT(audio, st.session_state["OPENAI_API"])
 
