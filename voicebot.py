@@ -1,166 +1,168 @@
+##### 기본 정보 입력 #####
 import streamlit as st
+# audiorecorder 패키지 추가
+from audiorecorder import audiorecorder
+# OpenAI 패키기 추가
 import openai
+# 파일 삭제를 위한 패키지 추가
 import os
+# 시간 정보를 위핸 패키지 추가
 from datetime import datetime
+# 오디오 array 비교를 위한 numpy 패키지 추가
+import numpy as np
+# TTS 패키기 추가
 from gtts import gTTS
+# 음원파일 재생을 위한 패키지 추가
 import base64
-from pydub import AudioSegment
-import io
 
-# --- 함수 정의 ---
-def STT(audio_segment, api_key):
-    filename = 'input.mp3'
-    audio_segment.export(filename, format="mp3")
+##### 기능 구현 함수 #####
+def STT(audio):
+    # 파일 저장
+    filename='input.mp3'
+    wav_file = open(filename, "wb")
+    wav_file.write(audio.tobytes())
+    wav_file.close()
 
-    if os.path.getsize(filename) == 0:
-        os.remove(filename)
-        return ""
+    # 음원 파일 열기
+    audio_file = open(filename, "rb")
+    #Whisper 모델을 활용해 텍스트 얻기
+    transcript = openai.Audio.transcribe("whisper-1", audio_file)
+    audio_file.close()
+    # 파일 삭제
+    os.remove(filename)
+    return transcript["text"]
 
-    with open(filename, "rb") as audio_file:
-        client = openai.OpenAI(api_key=api_key)
-        try:
-            response = client.audio.transcriptions.create(
-                file=audio_file,
-                model="whisper-1",
-            )
-            os.remove(filename)
-            return response.text
-        except Exception as e:
-            st.error(f"STT API 호출 중 오류가 발생했습니다: {e}")
-            os.remove(filename)
-            return ""
-
-def ask_gpt(prompt, model, apikey):
-    client = openai.OpenAI(api_key=apikey)
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=prompt
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        st.error(f"OpenAI API 호출 중 오류가 발생했습니다: {e}")
-        return ""
+def ask_gpt(prompt, model):
+    response = openai.ChatCompletion.create(model=model, messages=prompt)
+    system_message = response["choices"][0]["message"]
+    return system_message["content"]
 
 def TTS(response):
+    # gTTS 를 활용하여 음성 파일 생성
     filename = "output.mp3"
-    try:
-        tts = gTTS(text=response, lang='ko')
-        tts.save(filename)
-        with open(filename, "rb") as f:
-            data = f.read()
-            b64 = base64.b64encode(data).decode()
-            md = f"""
-            <audio autoplay="true">
+    tts = gTTS(text=response,lang="ko")
+    tts.save(filename)
+
+    # 음원 파일 자동 재성
+    with open(filename, "rb") as f:
+        data = f.read()
+        b64 = base64.b64encode(data).decode()
+        md = f"""
+            <audio autoplay="True">
             <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
             </audio>
             """
-            st.markdown(md, unsafe_allow_html=True)
-        os.remove(filename)
-    except Exception as e:
-        st.error(f"TTS 변환 중 오류가 발생했습니다: {e}")
-        if os.path.exists(filename):
-            os.remove(filename)
+        st.markdown(md,unsafe_allow_html=True,)
+    # 파일 삭제
+    os.remove(filename)
 
+##### 메인 함수 #####
 def main():
-    st.set_page_config(page_title="음성 비서 프로그램", layout="wide")
-    st.header("음성 비서 프로그램")
-    st.markdown("---")
+    # 기본 설정
+    st.set_page_config(
+        page_title="음성 비서",
+        layout="wide")
 
-    with st.expander("음성비서 프로그램에 관하여", expanded=True):
-        st.write("""
-        - STT: OpenAI Whisper 사용
-        - GPT: OpenAI ChatGPT 사용
-        - TTS: Google TTS 사용
-        - 텍스트 또는 음성으로 질문 가능
-        """)
+    flag_start = False
 
+    # session state 초기화
     if "chat" not in st.session_state:
         st.session_state["chat"] = []
 
-    if "OPENAI_API" not in st.session_state:
-        st.session_state["OPENAI_API"] = ""
-
     if "messages" not in st.session_state:
-        st.session_state["messages"] = [
-            {"role": "system", "content": "You are a helpful assistant. Respond to all input in 25 words and answer in Korean."}
-        ]
+        st.session_state["messages"] = [{"role": "system", "content": "You are a thoughtful assistant. Respond to all input in 25 words and answer in korea"}]
 
-    if "check_reset" not in st.session_state:
-        st.session_state["check_reset"] = False
+    if "check_audio" not in st.session_state:
+        st.session_state["check_audio"] = []
 
-    with st.sidebar:
-        st.session_state["OPENAI_API"] = st.text_input("OpenAI API 키", type="password", placeholder="sk-...")
-        st.markdown("---")
-        model = st.radio("GPT 모델 선택", ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"], index=0)
-        st.markdown("---")
-        if st.button("대화 초기화"):
-            st.session_state["chat"] = []
-            st.session_state["messages"] = [
-                {"role": "system", "content": "You are a helpful assistant. Respond to all input in 25 words and answer in Korean."}
-            ]
-            st.session_state["check_reset"] = True
-            st.rerun()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("질문하기")
-        text_question = st.text_input("텍스트로 질문하기", placeholder="여기에 질문을 입력하세요.")
-        text_submit = st.button("질문 전송")
-        st.markdown("---")
-        audio_file = st.file_uploader("음성 파일 업로드 (wav, mp3)", type=["wav", "mp3"])
 
-    with col2:
-        st.subheader("대화 내용")
-
-    question = ""
-    if st.session_state["check_reset"]:
-        st.session_state["check_reset"] = False
-    elif text_submit and text_question:
-        question = text_question
-    elif audio_file is not None:
-        audio_segment = AudioSegment.from_file(audio_file)
-        st.audio(audio_file)
-        question = STT(audio_segment, st.session_state["OPENAI_API"])
-
-    if question:
-        if not st.session_state["OPENAI_API"]:
-            st.error("먼저 사이드바에서 OpenAI API 키를 입력해주세요.")
-        else:
-            now = datetime.now().strftime("%H:%M")
-            st.session_state["chat"].append(("user", now, question))
-            st.session_state["messages"].append({"role": "user", "content": question})
-            response = ask_gpt(st.session_state["messages"], model, st.session_state["OPENAI_API"])
-            if response:
-                st.session_state["messages"].append({"role": "assistant", "content": response})
-                st.session_state["chat"].append(("bot", now, response))
-                TTS(response)
-
-    with col2:
-        for sender, time, message in st.session_state["chat"]:
-            if sender == "user":
-                st.write(f'''
-                    <div style="display: flex; align-items: center; justify-content: flex-end; margin-bottom: 10px;">
-                        <div style="font-size:0.8rem; color:gray; margin-right: 5px;">{time}</div>
-                        <div style="background-color: #007AFF; color: white; padding: 10px; border-radius: 15px;">
-                            {message}
-                        </div>
-                    </div>''', unsafe_allow_html=True)
-            else:
-                st.write(f'''
-                    <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                        <div style="background-color: lightgray; color: black; border-radius: 15px; padding: 10px;">
-                            {message}
-                        </div>
-                        <div style="font-size:0.8rem; color:gray; margin-left: 5px;">{time}</div>
-                    </div>''', unsafe_allow_html=True)
-        st.write("")
-
-if __name__ == "__main__":
-    main()
+    # 제목 
+    st.header("🔊 250611 음성 비서 프로그램_by chaeyeon")
+    # 구분선
     st.markdown("---")
-    st.markdown("""
-    <p style="text-align: center;">
-        © 2024 Voice Assistant Program. All rights reserved.
-    </p>
-    """, unsafe_allow_html=True)
+
+    # 기본 설명
+    with st.expander("📜 음성비서 프로그램 설정", expanded=True):
+        st.write(
+        """     
+        - UI : Streamlit
+        - STT(Speech-To-Text) : OpenAI의 Whisper AI 
+        - 답변 : OpenAI의 GPT
+        - TTS(Text-To-Speech) : 구글의 Google Translate TTS
+        """
+        )
+
+        st.markdown("")
+
+    # 사이드바 생성
+    with st.sidebar:
+
+        # Open AI API 키 입력받기
+        openai.api_key = st.text_input(label="OPENAI API 키", placeholder="Enter Your API Key", value="", type="password")
+
+        st.markdown("---")
+
+        # GPT 모델을 선택하기 위한 라디오 버튼 생성
+        model = st.radio(label="GPT 모델",options=["gpt-4", "gpt-3.5-turbo"])
+
+        st.markdown("---")
+
+        # 리셋 버튼 생성
+        if st.button(label="초기화"):
+            # 리셋 코드 
+            st.session_state["chat"] = []
+            st.session_state["messages"] = [{"role": "system", "content": "You are a thoughtful assistant. Respond to all input in 25 words and answer in korea"}]
+
+    
+    # 기능 구현 공간
+    col1, col2 =  st.columns(2)
+    with col1:
+        # 왼쪽 영역 작성
+        st.subheader("❓ 질문하기")
+        # 음성 녹음 아이콘 추가
+        audio = audiorecorder("🎙️ 클릭하여 녹음하기", "🔴 녹음중...")
+        if len(audio) > 0 and not np.array_equal(audio,st.session_state["check_audio"]):
+            # 음성 재생 
+            st.audio(audio.tobytes())
+
+            # 음원 파일에서 텍스트 추출
+            question = STT(audio)
+
+            # 채팅을 시각화하기 위해 질문 내용 저장
+            now = datetime.now().strftime("%H:%M")
+            st.session_state["chat"] = st.session_state["chat"]+ [("user",now, question)]
+            # GPT 모델에 넣을 프롬프트를 위해 질문 내용 저장
+            st.session_state["messages"] = st.session_state["messages"]+ [{"role": "user", "content": question}]
+            # audio 버퍼 확인을 위해 현 시점 오디오 정보 저장
+            st.session_state["check_audio"] = audio
+            flag_start =True
+
+    with col2:
+        # 오른쪽 영역 작성
+        st.subheader("💬 GPT와 대화하기")
+        if flag_start:
+            #ChatGPT에게 답변 얻기
+            response = ask_gpt(st.session_state["messages"], model)
+
+            # GPT 모델에 넣을 프롬프트를 위해 답변 내용 저장
+            st.session_state["messages"] = st.session_state["messages"]+ [{"role": "system", "content": response}]
+
+            # 채팅 시각화를 위한 답변 내용 저장
+            now = datetime.now().strftime("%H:%M")
+            st.session_state["chat"] = st.session_state["chat"]+ [("bot",now, response)]
+
+            # 채팅 형식으로 시각화 하기
+            for sender, time, message in st.session_state["chat"]:
+                if sender == "user":
+                    st.write(f'<div style="display:flex;align-items:center;"><div style="background-color:#007AFF;color:white;border-radius:12px;padding:8px 12px;margin-right:8px;">{message}</div><div style="font-size:0.8rem;color:gray;">{time}</div></div>', unsafe_allow_html=True)
+                    st.write("")
+                else:
+                    st.write(f'<div style="display:flex;align-items:center;justify-content:flex-end;"><div style="background-color:lightgray;border-radius:12px;padding:8px 12px;margin-left:8px;">{message}</div><div style="font-size:0.8rem;color:gray;">{time}</div></div>', unsafe_allow_html=True)
+                    st.write("")
+            
+            # gTTS 를 활용하여 음성 파일 생성 및 재생
+            TTS(response)
+
+if __name__=="__main__":
+    main()
