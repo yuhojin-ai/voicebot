@@ -128,7 +128,7 @@ def main():
     col1, col2 =  st.columns(2)
     with col1:
         # 왼쪽 영역 작성
-        st.subheader("질문 get it")
+        st.subheader("질문하기")
         # 음성 녹음 아이콘 추가
         audio = audiorecorder("클릭하여 녹음하기", "녹음중...")
         
